@@ -9,6 +9,8 @@ A general-purpose coding agent that runs inside an [NVIDIA OpenShell](https://gi
 - [Architecture](#architecture)
 - [OpenShell: comprehensive guide](#openshell-comprehensive-guide)
   - [Typical local progression](#typical-local-progression)
+  - [Explicit: `sandbox create`, 300s timeout, and polling](#explicit-sandbox-create-300s-timeout-and-polling)
+  - [Explicit: after `gateway destroy` (you must recreate sandboxes)](#explicit-after-gateway-destroy-you-must-recreate-sandboxes)
   - [Logging into a sandbox](#logging-into-a-sandbox)
   - [Sandbox CLI cheat sheet](#sandbox-cli-cheat-sheet)
   - [Beyond the CLI](#beyond-the-cli)
@@ -17,12 +19,18 @@ A general-purpose coding agent that runs inside an [NVIDIA OpenShell](https://gi
 - [Running the agent: LangGraph CLI, Deep Agents CLI, and embedding in code](#running-the-agent-langgraph-cli-deep-agents-cli-and-embedding-in-code)
 - [Try it out](#try-it-out)
 - [Using your sandbox (in depth)](#using-your-sandbox-in-depth)
+  - [Agent server lifetime vs gateway vs sandbox (practical reuse)](#agent-server-lifetime-vs-gateway-vs-sandbox-practical-reuse)
+  - [Host harness vs sandbox (tools, skills, memory, MCP)](#host-harness-vs-sandbox-tools-skills-memory-mcp)
+  - [Docker: stop vs delete, and what persists](#docker-stop-vs-delete-and-what-persists)
+  - [Host and sandbox file transfer (restore, upload at create)](#host-and-sandbox-file-transfer-restore-upload-at-create)
 - [Model Configuration](#model-configuration)
 - [Policy usage flow (gateway, sandbox, and YAML)](#policy-usage-flow-gateway-sandbox-and-yaml)
 - [Policy Iteration](#policy-iteration)
 - [Allowing new outbound destinations (playbook)](#allowing-new-outbound-destinations-playbook)
 - [Useful commands](#useful-commands)
+  - [Full local reset (gateway and sandboxes)](#full-local-reset-gateway-and-sandboxes)
 - [Troubleshooting](#troubleshooting)
+  - [ExecSandbox / SSH transport failures](#execsandbox--ssh-transport-failures)
 - [Resources](#resources)
 
 ## What is OpenShell?
@@ -99,6 +107,51 @@ Single reference for **local** gateway + sandbox workflow, **logging in**, and *
 
 You **cannot** create a durable sandbox before the gateway exists — the CLI talks to the gateway. If you **destroy and recreate** the gateway, **recreate** sandboxes afterward (old cluster state is gone).
 
+### Explicit: `sandbox create`, 300s timeout, and polling
+
+When you run:
+
+```bash
+uv run openshell sandbox create --name deepagent-sandbox --keep --policy policy.yaml
+```
+
+this is what happens, in order:
+
+1. **The sandbox resource is created immediately** — you will see **`Created sandbox: deepagent-sandbox`**. That means the gateway **registered** the workload, not that the pod is already running.
+
+2. **The CLI then waits (default ~300s)** for Kubernetes to start the pod (image pull, scheduling, **`Pending` → `Running` → Ready**). If that takes **longer than the wait**, the CLI prints **`sandbox provisioning timed out after 300s`** and exits with an error.
+
+3. **Provisioning may still succeed after that error.** The cluster keeps working. You **must not** assume failure from the timeout alone.
+
+4. **What you should do:** poll until **Ready**:
+
+   ```bash
+   uv run openshell sandbox get deepagent-sandbox
+   # or: uv run openshell sandbox list
+   ```
+
+   When **Phase: Ready**, **`uv run openshell sandbox connect deepagent-sandbox`** and LangGraph **`execute`** are safe to use.
+
+5. **Policy path:** the file must be **`policy.yaml`** (not **`policy.yam`**). The **`--policy`** argument is read from your **host** current working directory.
+
+6. **Correct list command:** there is **no** `openshell list`. Use **`uv run openshell sandbox list`**.
+
+### Explicit: after `gateway destroy` (you must recreate sandboxes)
+
+**`openshell gateway destroy`** deletes the **local OpenShell cluster** and the **workloads inside it**. Treat everything below as **mandatory** for this repo’s named-sandbox workflow:
+
+| Step | Command / check | Why |
+|------|------------------|-----|
+| 1 | **`uv run openshell gateway start`** (wait for **Gateway ready**; do **not** Ctrl+C) | A new empty cluster exists; nothing is listening until this finishes. |
+| 2 | **`uv run openshell status`** → **Status: Connected** | Confirms **`https://127.0.0.1:8080`** is live. |
+| 3 | **`docker ps \| grep -i openshell`** (optional) | Confirms a container like **`openshell-cluster-openshell`** is **Up (healthy)**. |
+| 4 | **`uv run openshell sandbox create --name deepagent-sandbox --keep --policy policy.yaml`** | **Old `deepagent-sandbox` pods and `/sandbox` data are gone** with the old cluster. You **must** create a sandbox again (same name is fine). |
+| 5 | Poll **`uv run openshell sandbox get deepagent-sandbox`** until **Phase: Ready** | If **`sandbox create` timed out at 300s**, keep polling — see [above](#explicit-sandbox-create-300s-timeout-and-polling). |
+| 6 | **`grep OPENSHELL_SANDBOX_NAME .env`** still **`deepagent-sandbox`** (or your chosen name) | **`src/backend.py`** uses this to **`client.get(name)`**; the name must match what you created. |
+| 7 | Restart **`uv run langgraph dev`** if it was running | The Python process may have been started when the gateway or sandbox did not exist. |
+
+**If you answer `n` to `gateway start`’s “Destroy and recreate?”** after **`gateway stop`**, the gateway often **never comes back** on **8080** — you get **`transport error`**. Use **`y`**, or **`uv run openshell gateway start --recreate`**, or **`gateway destroy`** then **`gateway start`**. See [Troubleshooting](#troubleshooting).
+
 ### Logging into a sandbox
 
 Requires a **running gateway**, **Connected** status, and sandbox **`Phase: Ready`**.
@@ -145,6 +198,7 @@ Append the printed **`Host`** block to **`~/.ssh/config`**, then connect using t
 
 - **This repo’s agent** — attaches to the same named sandbox via **`OPENSHELL_SANDBOX_NAME`** and **`SandboxSession.exec()`** in **`src/backend.py`** (see [Using your sandbox](#using-your-sandbox-in-depth)).
 - **Logs** — `uv run openshell logs <name> --tail --source all` (or **`--source gateway`** / **`sandbox`**).
+- **Diagnostics** — `uv run openshell doctor check` (prereqs); if the gateway container is missing, **`doctor logs`** may 404 — see **Troubleshooting**. For a bundled debug prompt: **`openshell doctor llm.txt`**.
 
 ---
 
@@ -397,6 +451,29 @@ When you run `langgraph dev` or `deepagents run`, two things happen in parallel:
 
 Plain chat (“what can you help me with?”) only needs the **host** + **LLM**. **Tools** that run code or write under the default filesystem hit **`OpenShellBackend`** → **`SandboxSession.exec()`** → gateway → **SSH into the sandbox**. If that path breaks, chat can still work while **execute / write_file** fail.
 
+### Agent server lifetime vs gateway vs sandbox (practical reuse)
+
+**What this repo does in code**
+
+For the **lifetime of one LangGraph dev server / Python process** (`langgraph dev`, `deepagents run`, etc.), **`create_backend`** in **`src/backend.py`** runs **once**: it builds a **`SandboxClient`** against the **active local gateway** (`SandboxClient.from_active_cluster()` — see **`~/.config/openshell/active_gateway`** / **`OPENSHELL_GATEWAY`**) and then either **`client.get(OPENSHELL_SANDBOX_NAME)`** or **`client.create()`** + **`wait_ready`**. It wraps the result in **one** **`SandboxSession`**. Every later **`execute`**, **`ls`**, **`write_file`** on the default backend reuses **that same session** for **many** agent turns — not “one tool call per sandbox.”
+
+**What that is *not***
+
+- It is **not** “only one chat message.” You get **many** steps on the **same** sandbox for as long as that process stays up and exec works.
+- It is **not** “OpenShell only allows one-shot sandboxes” in the API sense: the SDK supports **`get`**, **`list`**, **`delete`**, and named **`--keep`** sandboxes on purpose.
+
+**Across restarts of the agent process**
+
+When you **stop and start LangGraph** (new Python process), **`create_backend`** runs again. If **`OPENSHELL_SANDBOX_NAME`** points at a sandbox that **still exists** and **exec / connect** work, you attach to the **same named sandbox** again and keep **`/sandbox`** files there. If the **gateway** was stopped without a real **`gateway start`**, or Docker left **`https://127.0.0.1:8080`** unreachable, or you hit **`handshake verification failed`** and **recreate** the sandbox, **reuse breaks** — which **feels** like “one gateway + one sandbox per run” even though the **design** is reuse when the cluster is healthy.
+
+**Summary**
+
+| Scope | Typical behavior |
+|--------|------------------|
+| **One agent server process** | **One** active gateway client + **one** **`SandboxSession`** (one sandbox id) for all tools until the process exits. |
+| **Many turns in Studio** | Same session, unless you restart the server or the remote sandbox is replaced. |
+| **After `langgraph dev` restart** | Same sandbox **if** the name is unchanged and OpenShell is **Connected** + exec works; otherwise treat **`/sandbox`** as new and use **download/upload** / **`/memory`**. |
+
 Execution path in code (for reference):
 
 ```66:69:src/backend.py
@@ -441,6 +518,39 @@ agent = create_deep_agent(
 
 So: **instructions and team memory** can live in git under `src/`; **scratch work and generated artifacts** from typical coding tasks usually land under **`/sandbox/`** unless you instruct the agent to use `/memory/` or `/skills/`.
 
+### Host harness vs sandbox (tools, skills, memory, MCP)
+
+Two runtimes are involved: **LangGraph + Deep Agents on your machine** (the **harness**) and the **OpenShell Linux workload** (the **sandbox**). They are not the same process and do not share the same “tool registry.”
+
+| Concern | Where it runs | In this repo |
+|--------|----------------|--------------|
+| **LLM, graph, tool routing** | **Host** — `langgraph dev`, `create_deep_agent` in **`src/agent.py`** | Model, system prompt, Deep Agents built-ins (`execute`, `write_file`, …). |
+| **Extra LangChain `tools=`** | **Host** | Pass to **`create_deep_agent(..., tools=[...])`**. Tool code runs in the **Python process** unless you implement it to call **`execute`** or HTTP into the sandbox. |
+| **MCP** | **Host** (typical) | Expose MCP servers as **LangChain tools**, then pass them in **`tools=`**. The sandbox does **not** run the MCP server unless you start one **inside** the pod with **`execute`** and allow it in **`policy.yaml`**. |
+| **Deep Agents `skills=`** | **Host** (middleware reads files via backend) | Optional list of virtual paths (e.g. **`["/skills/"]`**). This repo routes **`/skills/`** → **`./skills`** on disk — see **`create_backend`**. Not enabled by default in **`src/agent.py`**; add **`skills=[...]`** if you want skill markdown injected like memory. |
+| **Shell, Python, packages, `/sandbox` files** | **Sandbox** | **`execute`**, **`write_file`** on non-prefix paths, **`pip install`**, etc. Policy and image define what exists **before** the agent runs. |
+
+**Does everything go through the harness?** Anything the model invokes as a **first-class tool** (including MCP) is registered on the **host** graph. The sandbox sees **commands and files**, not LangChain tool objects.
+
+**How to “pass” things into the sandbox workload**
+
+1. **Agent tools:** `write_file` / `execute` (e.g. write a script, run `pip install`, clone a repo if policy allows).
+2. **CLI:** **`openshell sandbox upload`**, **`sandbox create --upload …`** ([NVIDIA: Transfer files](https://docs.nvidia.com/openshell/latest/sandboxes/manage-sandboxes.html#transfer-files)).
+3. **Upstream / image:** customize the **sandbox base image** or OpenShell sandbox spec (outside this repo’s small glue layer).
+
+**`src/backend.py` does not** expose a separate API for “inject env vars into the pod” or “attach MCP inside the sandbox” — that would be **OpenShell / Kubernetes** configuration or **`execute`**-driven setup.
+
+#### Two meanings of “memory”
+
+| Mechanism | What it is | Persists across… |
+|-----------|------------|-------------------|
+| **`memory=["/memory/AGENTS.md"]`** in **`create_deep_agent`** | Files under the virtual **`/memory/`** prefix → **`./src`** on the **host**. Loaded into the **system prompt** (and related context) when the **agent process** builds the graph. | **Git / host** backups. **Not** inside the sandbox disk. |
+| **Files under `/sandbox/...`** | Written via **`write_file`** / **`execute`** in the **sandbox**. | **That sandbox workload** until **`sandbox delete`**, gateway teardown, or loss of cluster state — then use **download/upload**. |
+
+For durable, team-visible instructions, prefer **`./src/AGENTS.md`** (via **`/memory/`**). For run artifacts and environments built during a task, use **`/sandbox`** and **download** what you need before destroying sandboxes.
+
+See also [Deep Agents overview](https://docs.langchain.com/oss/python/deepagents/overview) for **`tools`**, **`skills`**, and **`memory`** parameters on **`create_deep_agent`**.
+
 ### Is there a “volume mount” of your project into the sandbox?
 
 **Not in the sense of Docker `-v $(pwd):/workspace`.** This repo does not bind-mount your repository directory into the sandbox container.
@@ -455,6 +565,35 @@ What you *do* have:
 
 If you need artifacts in **`./outputs` on your laptop**, either ask the agent to write under **`/memory/...`** (mapped under `./src`) — awkward for binaries — or **download** from `/sandbox/outputs/...` after the run.
 
+For **restoring** previous downloads after **`sandbox delete` / recreate**, **`sandbox create --upload`**, and how this compares to Docker **`-v`**, see **[Host and sandbox file transfer](#host-and-sandbox-file-transfer-restore-upload-at-create)**.
+
+### Host and sandbox file transfer (restore, upload at create)
+
+There is **no** supported **`docker run -v $(pwd):/workspace`-style bind mount** of arbitrary host directories into the OpenShell workload in this project. You move bytes with the CLI (or seed at create time), or you use agent paths that already live on the host.
+
+| Approach | Behavior |
+|----------|----------|
+| **`openshell sandbox download`** / **`upload`** | Explicit **copy** sandbox ↔ host (files or trees). **Not** a live synced folder. Official reference: [NVIDIA — Transfer files](https://docs.nvidia.com/openshell/latest/sandboxes/manage-sandboxes.html#transfer-files). |
+| **`openshell sandbox create --upload …`** | Seed host files into the sandbox **when the sandbox is created** (see the same doc section). |
+| **`/memory/`**, **`/skills/`** (this repo’s agent) | **`./src`**, **`./skills`** on the **host** via LangChain `FilesystemBackend` — durable and git-friendly; **not** a kernel mount inside the pod. |
+| **Docker `-v`** | **Not** how this repo attaches your project to the sandbox pod. |
+
+**Restore something you downloaded earlier**
+
+Keep a stash on the host (e.g. **`./sandbox-backups/`**). After a new sandbox exists:
+
+```bash
+uv run openshell sandbox upload deepagent-sandbox ./sandbox-backups/outputs /sandbox/outputs
+# or single file with explicit dest:
+uv run openshell sandbox upload deepagent-sandbox ./sandbox-backups/wmt_news.json /sandbox/outputs/wmt_news.json
+```
+
+Default destination for **`upload`** is **`/sandbox`** if you omit the final path (see [OpenShell CLI](#openshell-cli-shell-download-upload-ssh) below).
+
+**Large trees or binaries**
+
+Prefer **upload/download**, **`git clone`** inside the sandbox (if policy allows), or **`/memory/`** only for text-sized artifacts you are happy to live under **`./src`**.
+
 ### Persistent sandbox vs ephemeral
 
 - **`OPENSHELL_SANDBOX_NAME=deepagent-sandbox`** (in `.env`) — the agent calls `SandboxClient.get("deepagent-sandbox")` and reuses that sandbox across runs. You create it once with `--keep`.
@@ -465,6 +604,72 @@ If you need artifacts in **`./outputs` on your laptop**, either ask the agent to
 grep OPENSHELL_SANDBOX_NAME .env
 # OPENSHELL_SANDBOX_NAME=deepagent-sandbox
 ```
+
+### Docker: stop vs delete, and what persists
+
+**Where data lives**
+
+- **`/sandbox/...` inside the workload** — Stays only while **that sandbox** still exists on a **healthy gateway cluster**. It is not your project folder on the laptop; the gateway (k8s) owns that disk.
+- **`/memory/` and `/skills/`** — Map to **`./src`** and **`./skills`** on the **host** through the agent backend. They persist with normal git and filesystem backup, independent of the sandbox lifecycle.
+
+**Stopping the whole engine (Docker Desktop, or anything that tears down the OpenShell gateway)**
+
+That **stops the gateway** (k3s). Do **not** assume sandboxes survive: cluster state may be gone or sandboxes invalid after a full teardown. This repo’s [Policy usage flow](#policy-usage-flow-gateway-sandbox-and-yaml) already notes that after **destroying and recreating** the gateway you should **create sandboxes again**. Relying on “I never ran `sandbox delete`” is not enough if Docker/gateway was stopped in a way that wipes the cluster.
+
+**While the gateway stays up and you do not delete the sandbox**
+
+The same **named** sandbox’s **`/sandbox`** data should still be there across normal agent runs and reconnects.
+
+**Docker Desktop: Stop on a container, then Start (play) — without Remove**
+
+- **Stop** does not delete the container; its filesystem and any **mounted volumes** are retained.
+- **Start** brings back **that same** container instance (not a fresh container from the image alone).
+
+For a typical app with a **named volume**, data is still there after stop/start.
+
+For the **OpenShell gateway / k3s** container(s), stop/start is **safer than remove**, but **whether your sandboxes and `/sandbox` files reappear** depends on how that stack persists etcd / PVCs. After you start Docker again, verify with:
+
+```bash
+uv run openshell status
+uv run openshell sandbox list
+uv run openshell sandbox get deepagent-sandbox
+```
+
+If the sandbox is **missing** or stuck **not Ready**, treat **`/sandbox`** as lost unless you had **downloaded** important files. Anything you need long-term should live under **`/memory/`** / **`/skills/`** on the host, or be copied out with **`openshell sandbox download`**.
+
+**After Docker Desktop Stop → Start (Play): run the gateway again**
+
+The CLI uses **`https://127.0.0.1:8080`** (see **`openshell status`**). Starting the **Docker** container alone does not always mean that endpoint accepts connections immediately — or at all until the gateway is (re)started from the host.
+
+1. Wait until the OpenShell-related container(s) show **healthy** in Docker Desktop (can take a minute right after engine start).
+2. On your host terminal:
+
+   ```bash
+   uv run openshell gateway start
+   ```
+
+3. Confirm **`uv run openshell status`** shows **Connected** (not a connect error).
+4. Then **`uv run openshell sandbox list`**.
+
+You **do not** need to **`sandbox delete`** after every Docker stop/start. If the sandbox is still listed and **Ready**, try **`sandbox connect`** or your agent first; keep using it. **Delete and recreate** only when **`ExecSandbox`** / tools fail and logs show problems like **`handshake verification failed`** (see [ExecSandbox / SSH transport failures](#execsandbox--ssh-transport-failures)) — that is a recovery step for a **broken pairing**, not a routine requirement.
+
+**Why this feels unfair after a single Docker Stop → Play**
+
+The CLI can still show **Phase: Ready** while **`handshake verification failed`** appears in logs — the **object** exists, but the **NSSH credential pairing** between gateway and pod is wrong after some restarts. The supported repair is **replace the sandbox workload** (`delete` + `create`), which **wipes everything under `/sandbox`** for that sandbox. So yes: one innocent **Stop** in Docker Desktop can force a **full sandbox disk reset** even though you did not click **Remove**. That is an **OpenShell / local-dev sharp edge**, not something you misconfigured on purpose.
+
+**Mitigations**
+
+- Treat **`/sandbox`** as **ephemeral** across Docker/gateway cycles: **`openshell sandbox download`** anything you care about before stopping Docker, or have the agent write durable notes under **`/memory/`** (host **`./src`**).
+- Keep **`openshell`** aligned with the cluster (**`uv lock && uv sync`**, this repo **`openshell>=0.0.13`**) to reduce handshake skew.
+- If you can avoid **stopping the Docker engine** while you need the same sandbox session, you avoid the failure mode entirely.
+
+If this happens often on your build, file or upvote an issue on [OpenShell](https://github.com/NVIDIA/OpenShell) describing **Docker Desktop Stop/Start** → **handshake verification failed** while **Ready** — that is the right place to ask for **pairing to survive** or for a **repair RPC** that does not require deleting the sandbox.
+
+If you still see **`transport error`**, **`tcp connect`**, **`deadline has elapsed`**, or **`Connection reset by peer`**, wait a bit longer and repeat **`gateway start`**; if needed try **`uv run openshell gateway stop`** then **`gateway start`** once Docker is stable. Persistent resets after that point to a broken or mismatched local gateway — check **`docker ps`**, OpenShell release notes, or **`openshell logs`** (with a sandbox name if you have one).
+
+**Avoid managing sandbox pods from Docker UI**
+
+Sandbox workloads usually run as **Kubernetes pods** inside the gateway. Stopping or poking them from Docker Desktop is not the supported workflow and can confuse cluster state. Prefer **`openshell`** commands for lifecycle.
 
 ### OpenShell CLI: shell, download, upload, SSH
 
@@ -524,7 +729,7 @@ uv run openshell sandbox upload deepagent-sandbox ./my_local_file.txt
 uv run openshell sandbox upload deepagent-sandbox ./data.csv /sandbox/data.csv
 ```
 
-Useful to seed datasets or scripts before asking the agent to run them.
+Useful to seed datasets or scripts before asking the agent to run them. After you **`sandbox delete`** and **recreate**, **`upload`** is how you **put those files back** into **`/sandbox`** (see [Host and sandbox file transfer](#host-and-sandbox-file-transfer-restore-upload-at-create)). You can also pass **`--upload`** on **`openshell sandbox create`** to seed at creation time ([NVIDIA docs](https://docs.nvidia.com/openshell/latest/sandboxes/manage-sandboxes.html#transfer-files)).
 
 #### SSH config (VS Code / Cursor Remote-SSH, `scp`)
 
@@ -728,9 +933,70 @@ uv run openshell sandbox get deepagent-sandbox                   # phase + polic
 uv run openshell sandbox connect deepagent-sandbox               # shell inside sandbox
 uv run openshell logs deepagent-sandbox --tail --source all      # gateway + sandbox
 
-# Clean up
+# Clean up (lightweight)
 uv run openshell sandbox delete deepagent-sandbox
 uv run openshell gateway stop
+
+# Nuclear reset — see [Full local reset](#full-local-reset-gateway-and-sandboxes) below
+```
+
+### Full local reset (gateway and sandboxes)
+
+Use this when **`handshake verification failed`**, broken **`connect`**, or cluster state feels corrupt and you want a **clean gateway + new sandbox**. This **wipes all sandboxes** on that gateway and **gateway-local cluster state**; **`/sandbox`** for every sandbox is gone unless you **[downloaded backups](#host-and-sandbox-file-transfer-restore-upload-at-create)**.
+
+**Mandatory consequence:** after **`gateway destroy`**, you **must** run **`gateway start`**, then **`sandbox create … --policy policy.yaml`** again, then wait **Ready** — see **[Explicit: after `gateway destroy`](#explicit-after-gateway-destroy-you-must-recreate-sandboxes)**.
+
+**1. Optional — save files from a running sandbox** (only if the gateway is up and exec still works):
+
+```bash
+uv run openshell sandbox download deepagent-sandbox /sandbox/outputs ./outputs-backup
+```
+
+**2. Stop and destroy the gateway** (Docker must be running):
+
+```bash
+uv run openshell gateway stop
+uv run openshell gateway destroy
+```
+
+**`gateway destroy`** removes the local cluster and its state; you do **not** need to delete sandboxes first in most cases (they lived in that cluster).
+
+**3. Start a fresh gateway:**
+
+```bash
+uv run openshell gateway start
+uv run openshell status   # Connected
+```
+
+**Alternative** if you still have a **stopped** gateway and `gateway start` asks **`Destroy and recreate?`**: answer **`y`**, or run non-interactively:
+
+```bash
+uv run openshell gateway start --recreate
+```
+
+**Let `gateway start` / `gateway start --recreate` finish.** Image pull and cluster bootstrap can take **many minutes**. If you **Ctrl+C** while it says **Downloading gateway** or similar, you can end up with **nothing listening on `https://127.0.0.1:8080`**, **`transport error`**, or **`Gateway 'openshell' is not reachable`**. Recovery: **`uv run openshell gateway destroy`** (or the CLI’s suggested **`openshell gateway destroy --name openshell`**) then **`uv run openshell gateway start`** again and **wait until you see success output** (e.g. **Gateway ready**).
+
+**4. Create a new named sandbox** (this repo’s policy):
+
+```bash
+uv run openshell sandbox create --name deepagent-sandbox --keep --policy policy.yaml
+```
+
+Wait until **`openshell sandbox get deepagent-sandbox`** shows **Phase: Ready**.
+
+**5. Verify**
+
+```bash
+.venv/bin/openshell sandbox connect deepagent-sandbox -v
+# or: uv run openshell sandbox connect deepagent-sandbox -v
+```
+
+Then **`pwd`**, **`ls /sandbox`** — you should be **inside** the workload, not your repo host.
+
+**6. Align the Python client** (reduces handshake skew after upgrades):
+
+```bash
+uv lock && uv sync
 ```
 
 ---
@@ -741,17 +1007,54 @@ uv run openshell gateway stop
 |---------|-----|
 | `No module named 'openshell'` | Run `uv sync` to install all dependencies |
 | `no active gateway configured` | `uv run openshell gateway start` (Docker must be running) |
+| **`transport error`** / **`tcp connect`** / **`deadline has elapsed`** / **`Connection reset by peer`** on **`openshell sandbox list`** or **`status`** | Nothing is accepting gRPC on **`https://127.0.0.1:8080`**. Common causes: answered **`n`** to **Destroy and recreate?** after **`gateway stop`** (gateway stays **stopped** — run **`gateway start`** with **`y`** or **`--recreate`**, or **`destroy` + `start`**); or **`gateway start --recreate` / `gateway start` was interrupted** mid-download — run **`gateway destroy`** then **`gateway start`** and **wait to completion**. **`openshell status`** should show **Connected**, not only **Server:**. See [Docker: stop vs delete, and what persists](#docker-stop-vs-delete-and-what-persists) and [Full local reset](#full-local-reset-gateway-and-sandboxes). |
+| **`Gateway 'openshell' is not reachable`** | Cluster never came up or was left half-torn-down. **`uv run openshell gateway destroy`** then **`uv run openshell gateway start`** (wait for **Gateway ready**). The CLI may suggest **`openshell gateway destroy --name openshell && openshell gateway start`**. |
+| **`openshell doctor logs`**: **`No such container: openshell-cluster-openshell`** (404) | Local metadata still points at a gateway container that **no longer exists** (e.g. **`gateway destroy`**, interrupted **`gateway start --recreate`**, or Docker removed the container). Run **`uv run openshell gateway destroy --name openshell`** then **`uv run openshell gateway start`** and wait for **Gateway ready**; confirm with **`docker ps`** that an OpenShell cluster container is **running**. |
+| **`openshell status`** hangs until you **Ctrl+C** | Same as **no listener on 8080** — the CLI is trying to reach a dead gateway. Fix the gateway first (**`destroy` + `start`**), do not rely on partial output that only shows **Server:**. |
+| **`openshell list`** / **`openshell ls`** not found | Use **`openshell sandbox list`** (there is no top-level **`list`** command). |
 | Gateway won't start | Make sure Docker Desktop is running: `docker info` |
 | Agent can't write to `/workspace` | Use `/sandbox` instead (writable working directory) |
 | Orphaned sandboxes piling up | Set `OPENSHELL_SANDBOX_NAME` in `.env` to reuse one sandbox |
 | **`write_todos`**: `todos.N.content: Field required` | Each todo needs **`content`** + **`status`**, not `text` / `description` alone (see [Using your sandbox](#using-your-sandbox-in-depth)). |
-| Chat works but **`execute`** fails: SSH / **connection reset** / **handshake verification failed** | OpenShell **gateway ↔ sandbox** issue. `openshell gateway stop` && `openshell gateway start`; recreate sandbox; check `openshell logs --source gateway`. If it persists after a fresh sandbox, report to OpenShell with logs. |
+| Chat works but tools fail; LangGraph shows **`_MultiThreadedRendezvous`** / **internal error**; gateway logs show **`Retrying SSH transport establishment`** then **`ExecSandbox failed`** | The API thinks the sandbox is **Ready**, but the gateway cannot open **SSH into the workload pod**. See [ExecSandbox / SSH transport failures](#execsandbox--ssh-transport-failures) below. |
+| Chat works but **`execute`** fails: SSH / **connection reset** / **handshake verification failed** (no log quote) | Same **gateway ↔ sandbox** path. `openshell gateway stop` && `openshell gateway start`; recreate sandbox; **`openshell logs <name> --source all`**. If it persists after a fresh sandbox, report to OpenShell with logs. |
 | **`ollama...ResponseError` HTTP 500** on the **model** step | Ollama (often **cloud**). Retry; test `curl http://127.0.0.1:11434/api/chat` with your model; try a **local** GGUF model to isolate cloud outages. |
 | File in **`/sandbox`** not on my laptop | Use **`openshell sandbox download`** (files live in the pod until you pull them). |
 | WSL + Ollama on Windows | Ensure `OLLAMA_BASE_URL` from WSL reaches Ollama (test with `curl` from the same environment as `langgraph dev`). |
 | **`policy set`** returns **`Unimplemented`** | Your gateway image does not implement that gRPC. Use **`sandbox create --keep --policy policy.yaml`** (or recreate sandbox) instead; see [Policy usage flow](#policy-usage-flow-gateway-sandbox-and-yaml). |
 | **`curl: (56) CONNECT tunnel failed, response 403`** / outbound HTTPS fails from Python | Network policy miss: wrong **`host`**, **`port`**, or **`binaries.path`** (e.g. **`python3.12`** not listed). See [Allowing new outbound destinations (playbook)](#allowing-new-outbound-destinations-playbook); use **`openshell logs <name> --since 10m`** for **`dst_host`** / **`binary=`**. |
 | **`sandbox is not ready`** / **`FAILED_PRECONDITION`** | Sandbox still **Provisioning** or unhealthy. Wait for **`openshell sandbox get <name>`** → **Phase: Ready**; check **`openshell logs`**; do not rely on exec until gateway logs show readiness. See [OpenShell: comprehensive guide](#openshell-comprehensive-guide). |
+| **`sandbox provisioning timed out after 300s`** / **`Pod … Pending`** / **`DependenciesNotReady`** but **`sandbox list`** shows **Ready** later | **`sandbox create`** registers the sandbox immediately (**Created sandbox**), then the CLI waits for Kubernetes to run the pod (image pull, scheduling, volumes, etc.). That often takes **longer than the default ~300s wait**, so the CLI **exits with an error** even though provisioning **continues**. Poll **`uv run openshell sandbox get <name>`** or **`sandbox list`**; when **Phase: Ready**, **`connect`** / **`execute`** work. First-time pulls of large sandbox images are a common cause. |
+| Stopped Docker / gateway; will **`/sandbox`** still be there? | Not guaranteed. After Docker/gateway is back, run **`openshell sandbox list`** / **`sandbox get`**. See [Docker: stop vs delete, and what persists](#docker-stop-vs-delete-and-what-persists). |
+| **Start over from scratch** (new gateway + new sandbox) | **`openshell gateway stop`** → **`gateway destroy`** → **`gateway start`** (or **`gateway start --recreate`**), then **`sandbox create … --policy policy.yaml`**. See [Full local reset](#full-local-reset-gateway-and-sandboxes). |
+
+### ExecSandbox / SSH transport failures
+
+**What you see**
+
+- **LangGraph / Studio:** tool calls fail with something like **`_MultiThreadedRendezvous: An internal error occurred`** (gRPC bubbling up from the OpenShell client).
+- **Gateway logs:** **`[openshell_server::grpc] Retrying SSH transport establishment`** several times, then **`ExecSandbox failed`**, often right after **`Sandbox is now ready`**.
+
+**Stronger signal in combined logs (gateway + sandbox):**
+
+- Gateway: **`SSH tunnel: TCP connected to sandbox`**, **`sending NSSH1 handshake preface`**, **`handshake response received`**.
+- Sandbox: **`preface received, verifying`** (often **`preface_len=155`**), then **`SSH connection: handshake verification failed`**.
+
+That pattern means **TCP is fine** — traffic reaches the pod — but the **NSSH1 handshake check inside the sandbox rejects what the gateway sent**. That is a **credential / identity / version-alignment** problem between **gateway and this sandbox workload**, not “sshd is slow” and not **`policy.yaml`**.
+
+Typical causes after **Docker Stop → Play** or **gateway restart:** an **old sandbox** still registered while the **gateway’s keys or control-plane state changed**, or a **CLI/gateway image skew** so the two sides no longer agree on the handshake.
+
+**What to try (in order)**
+
+1. **Recreate the sandbox (most important for `handshake verification failed`):** `uv run openshell sandbox delete <name>` then `uv run openshell sandbox create --name <name> --keep --policy policy.yaml`; wait **Ready**, then **`sandbox connect`** or retry tools. A **new** pod should pair with the **current** gateway credentials.
+2. **Restart the gateway cleanly:** `uv run openshell gateway stop` then `uv run openshell gateway start`; **`openshell status`** → **Connected**; if the sandbox was created under an old run, still prefer **step 1**.
+3. **Align OpenShell versions:** run **`uv lock && uv sync`** so the **`openshell`** Python wheel matches your **gateway/cluster** image. This repo pins **`openshell>=0.0.13`**; older wheels (e.g. **0.0.7**) have produced **`handshake verification failed`** against newer local clusters. After upgrading, **recreate the sandbox** (step **1**) so the workload matches the current control plane.
+4. **Reproduce outside LangGraph:** `uv run openshell sandbox connect <name>` — same failure confirms it is not LangGraph-specific.
+5. **Wait 30–60 seconds** after **Ready** and retry **once** — only helps when the failure is **timing**, not **verification failed** (if logs already show **handshake verification failed**, prioritize steps **1–3**).
+6. **Broader logs:** `uv run openshell logs <name> --tail --source all` to correlate **gateway** tunnel lines with **sandbox** **`openshell_sandbox::ssh`** lines.
+7. **Docker / WSL / VPN:** Restart **Docker Desktop** if the cluster is wedged; on **WSL2**, avoid splitting **Windows vs Linux** processes against different **127.0.0.1:8080** endpoints.
+
+If **handshake verification failed** persists after a **fresh sandbox** and **aligned `uv sync`**, capture one full **`ExecSandbox`** attempt (gateway + sandbox sources) and open an issue with [OpenShell](https://github.com/NVIDIA/OpenShell) or the [Community](https://github.com/NVIDIA/OpenShell-Community) repo — include gateway image tag and **`uv run openshell --version`**.
 
 ---
 

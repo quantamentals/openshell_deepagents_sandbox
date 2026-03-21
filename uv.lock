@@ -1041,7 +1041,7 @@ wheels = [
 
 [[package]]
 name = "openshell"
-version = "0.0.7"
+version = "0.0.13"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
@@ -1049,9 +1049,9 @@ dependencies = [
     { name = "protobuf" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/0a/e6b80c68e8c75be0ac68def902b90b76a2756d42a8869c6d94d5951c2f18/openshell-0.0.7-py3-none-macosx_11_0_arm64.whl", hash = "sha256:a861065e4eda036cdd6bd99430017444b8013ae0ede7eafca371aaeb717c84d8", size = 5295447, upload-time = "2026-03-17T03:49:08.818Z" },
-    { url = "https://files.pythonhosted.org/packages/b4/b5/143ffb78ecff5c3bfaf3c13c6ef799c610245ba5b0528fec4f9635c6ad1a/openshell-0.0.7-py3-none-manylinux_2_39_aarch64.whl", hash = "sha256:3930a47bfec833d1da00176035abc509d9fbcfb9e9b43522372868b355499143", size = 5431397, upload-time = "2026-03-17T03:49:33.301Z" },
-    { url = "https://files.pythonhosted.org/packages/17/57/13ed82a1f0762cac696a238c434eecd8bae85d6c90585f3c0ed841c2e7da/openshell-0.0.7-py3-none-manylinux_2_39_x86_64.whl", hash = "sha256:ebab115ebcfe0150f08f162c944c7335c95eec1c1b987dd676f1f1184e67cc74", size = 5632638, upload-time = "2026-03-17T03:49:54.668Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/06/6df05f2cdd1bccb055e1540d772374df84a2f795cafdb6599ec08f3bead3/openshell-0.0.13-py3-none-macosx_11_0_arm64.whl", hash = "sha256:3e7dfd8d6e77f5299d885eeb8bfc5c05d2a46bbc63c4b28149fb23ba2dd154a4", size = 6065509, upload-time = "2026-03-21T18:42:25.618Z" },
+    { url = "https://files.pythonhosted.org/packages/af/bf/f8d001c1172bd1576a9ad403166db1a2936f91c299a59e0e9d9861982192/openshell-0.0.13-py3-none-manylinux_2_39_aarch64.whl", hash = "sha256:514e514fe6041c862aca53e0ed622b36af6db2d2de332415aa3912c5bbf9b875", size = 6144431, upload-time = "2026-03-21T18:42:43.203Z" },
+    { url = "https://files.pythonhosted.org/packages/49/6b/7af2242d98397139041f2c806c9ce4d71088c30c15f9e4428b59e6e13b00/openshell-0.0.13-py3-none-manylinux_2_39_x86_64.whl", hash = "sha256:a003105c911369f2455ea915aea48194989e5bfbab048e63cae3a525b3e6d070", size = 6467534, upload-time = "2026-03-21T18:43:04.647Z" },
 ]
 
 [[package]]
@@ -1073,7 +1073,7 @@ requires-dist = [
     { name = "langchain", specifier = ">=1.2.12" },
     { name = "langchain-ollama", specifier = ">=1.0.1" },
     { name = "langgraph-cli", extras = ["inmem"], specifier = ">=0.4.18" },
-    { name = "openshell", specifier = ">=0.0.7" },
+    { name = "openshell", specifier = ">=0.0.13" },
     { name = "yfinance", specifier = ">=1.2.0" },
 ]
 

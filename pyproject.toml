@@ -8,7 +8,7 @@ dependencies = [
     "langchain>=1.2.12",
     "langchain-ollama>=1.0.1",
     "langgraph-cli[inmem]>=0.4.18",
-    "openshell>=0.0.7",
+    "openshell>=0.0.13",
     "yfinance>=1.2.0",
 ]
 
