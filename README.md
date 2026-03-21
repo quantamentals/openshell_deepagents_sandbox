@@ -20,6 +20,7 @@ A general-purpose coding agent that runs inside an [NVIDIA OpenShell](https://gi
 - [Model Configuration](#model-configuration)
 - [Policy usage flow (gateway, sandbox, and YAML)](#policy-usage-flow-gateway-sandbox-and-yaml)
 - [Policy Iteration](#policy-iteration)
+- [Allowing new outbound destinations (playbook)](#allowing-new-outbound-destinations-playbook)
 - [Useful commands](#useful-commands)
 - [Troubleshooting](#troubleshooting)
 - [Resources](#resources)
@@ -652,7 +653,67 @@ uv run openshell sandbox delete deepagent-sandbox   # if replacing
 uv run openshell sandbox create --name deepagent-sandbox --keep --policy policy.yaml
 ```
 
-**Allowing new websites (HTTPS):** Under `network_policies`, add or extend a block with `endpoints` entries `host: <hostname>` and `port: 443` (use `80` for HTTP). List **`binaries`** for programs that may open those connections (e.g. `/sandbox/.venv/bin/python` for `yfinance` / `requests`). The repo includes a **`market_data`** block in `policy.yaml` for Yahoo Finance (`query1` / `query2`) and Financial Modeling Prep; copy that pattern for other hosts. If a library still fails, capture the real hostname (browser devtools, `curl -v`, or app logs) and add it—libraries may use CDNs or extra domains.
+**Allowing new websites (HTTPS):** See **[Allowing new outbound destinations (playbook)](#allowing-new-outbound-destinations-playbook)** for the full workflow (hosts, binaries, HTTPS nuances, and logs). This repo’s **`policy.yaml`** includes **`yfinance`** (Yahoo / yfinance stack) and **`market_data`** (Financial Modeling Prep); use those blocks as templates.
+
+---
+
+## Allowing new outbound destinations (playbook)
+
+OpenShell does not give sandboxes unrestricted internet access. Outbound TCP is allowed only when a **`network_policies`** rule matches **both** the **destination** (`host` + `port`) and the **process** (`binaries.path`). If anything is wrong, clients often see a **proxy CONNECT failure**, e.g. **`curl: (56) CONNECT tunnel failed, response 403`** — that is the gateway refusing the tunnel because **no policy matched**, not “Yahoo is down.”
+
+This section summarizes what we hit with **yfinance** and how to extend policy for **any** API, site, or SDK.
+
+### What went wrong with Yahoo Finance / yfinance
+
+A minimal policy that listed only a few Yahoo hostnames still failed because:
+
+1. **Wrong Python binary in policy** — The interpreter is often **`/sandbox/.venv/bin/python3.12`** (or another minor version). Rules that only list **`python`** / **`python3`** may not match, so the proxy returns **403** even when hostnames are correct. **Fix:** use path **globs** such as **`/sandbox/.venv/bin/python*`** (and the same for **`/app/.venv/bin/python*`**, **`/usr/bin/python*`**, **`/sandbox/.uv/python/**`** if you use **`uv`** runtimes).
+
+2. **Multi-level subdomains** — Hosts like **`query1.finance.yahoo.com`** are **not** covered by a single-level wildcard **`*.yahoo.com`** (that matches **`foo.yahoo.com`**, not **`foo.bar.yahoo.com`**). **Fix:** add an endpoint for **`*.finance.yahoo.com`** (quoted in YAML) when a vendor uses that pattern.
+
+3. **Extra domains** — Real clients also hit **`consent.yahoo.com`**, CDNs such as **`*.yimg.com`**, and other Yahoo properties. **Fix:** allow every hostname the library actually uses (discover via logs — below).
+
+4. **POST and TLS inspection** — Some flows (cookies, consent, non-GET APIs) need **Layer-7** handling. For HTTPS, mirroring OpenShell’s own **`claude_code`** / **`github_rest_api`** style helps: **`protocol: rest`**, **`tls: terminate`**, **`enforcement: enforce`**, and **`access: full`** on **443** when you need methods beyond simple GET passthrough. Without that, you can still see failures even after adding hostnames.
+
+After updating **`policy.yaml`**, you must **recreate** the sandbox with **`--policy policy.yaml`** (or use **`policy set`** if your gateway implements it). Editing the file on disk does nothing until the running sandbox’s policy is replaced.
+
+### General steps for any API, site, or SDK
+
+1. **Pick or add a `network_policies` key** — e.g. **`my_api:`** with **`name:`**, **`endpoints:`**, and **`binaries:`** (see existing blocks in **`policy.yaml`**).
+
+2. **List every host and port** — Usually **`port: 443`** for HTTPS; add **`80`** only if the client uses plain HTTP redirects.
+
+3. **Match the real process** — Under **`binaries`**, include every executable that opens sockets: **`python*`** for interpreted code, **`/usr/bin/curl`**, **`/usr/bin/git`**, etc. If in doubt, run **`openshell logs`** (next step) and align **`binary=`** in deny lines with your policy paths.
+
+4. **Choose endpoint shape** — For simple read-only REST, **`github_rest_api`**-style **`access: read-only`** may suffice. For arbitrary methods, cookies, or opaque HTTPS clients, prefer **`protocol: rest`** + **`tls: terminate`** + **`access: full`** on **443** (same idea as **`yfinance`** in this repo).
+
+5. **Apply policy** — **`openshell sandbox delete …`** then **`openshell sandbox create --name … --keep --policy policy.yaml`**, wait for **Phase: Ready**, then retry.
+
+6. **Confirm** — **`openshell sandbox get <name>`** and check the embedded policy. **`uv run python -c "import yaml; yaml.safe_load(open('policy.yaml'))"`** catches YAML syntax errors before you recreate.
+
+### Discovering missing hosts and binaries
+
+When something is still blocked:
+
+```bash
+uv run openshell logs deepagent-sandbox --since 10m
+```
+
+Look for **deny** / **policy** lines mentioning **`dst_host`**, **`deny_reason`**, or **`binary=`**. Add those hosts under **`endpoints`** and extend **`binaries`** until the process that makes the connection is covered. If logs are sparse, run **`curl -v https://api.example.com`** from **`openshell sandbox connect`** (same policy as **`execute`**) to see redirects and SNI hostnames.
+
+### Wildcards vs. least privilege
+
+Quoted wildcards such as **`"*.finance.yahoo.com"`** reduce churn when a provider rotates **`query1`** / **`query2`**. Broader patterns (e.g. **`"*.yahoo.com"`**) are convenient but widen trust; once everything works, you can narrow **`endpoints`** to explicit hostnames you observed in logs.
+
+### Summary checklist
+
+| Check | Why it matters |
+|--------|----------------|
+| **Host + port** in **`endpoints`** | No match → **CONNECT 403** |
+| **Multi-level subdomains** | **`*.example.com`** ≠ **`a.b.example.com`** |
+| **`binaries.path`** matches **`python3.12`**, **`uv`** shims, etc. | Process mismatch → **403** |
+| **POST / cookies** | May need **`protocol: rest`**, **`tls: terminate`**, **`access: full`** |
+| **Recreate sandbox** after YAML edits | Policy is baked at create time on many dev gateways |
 
 ---
 
@@ -689,6 +750,7 @@ uv run openshell gateway stop
 | File in **`/sandbox`** not on my laptop | Use **`openshell sandbox download`** (files live in the pod until you pull them). |
 | WSL + Ollama on Windows | Ensure `OLLAMA_BASE_URL` from WSL reaches Ollama (test with `curl` from the same environment as `langgraph dev`). |
 | **`policy set`** returns **`Unimplemented`** | Your gateway image does not implement that gRPC. Use **`sandbox create --keep --policy policy.yaml`** (or recreate sandbox) instead; see [Policy usage flow](#policy-usage-flow-gateway-sandbox-and-yaml). |
+| **`curl: (56) CONNECT tunnel failed, response 403`** / outbound HTTPS fails from Python | Network policy miss: wrong **`host`**, **`port`**, or **`binaries.path`** (e.g. **`python3.12`** not listed). See [Allowing new outbound destinations (playbook)](#allowing-new-outbound-destinations-playbook); use **`openshell logs <name> --since 10m`** for **`dst_host`** / **`binary=`**. |
 | **`sandbox is not ready`** / **`FAILED_PRECONDITION`** | Sandbox still **Provisioning** or unhealthy. Wait for **`openshell sandbox get <name>`** → **Phase: Ready**; check **`openshell logs`**; do not rely on exec until gateway logs show readiness. See [OpenShell: comprehensive guide](#openshell-comprehensive-guide). |
 
 ---

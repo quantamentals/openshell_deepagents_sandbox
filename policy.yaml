@@ -95,25 +95,59 @@ network_policies:
     - path: /usr/bin/curl
     - path: /bin/bash
     - path: /usr/local/bin/opencode
-  # yfinance → Yahoo Finance HTTPS APIs (add more hosts if requests fail, e.g. guce.yahoo.com).
-  # FMP → https://financialmodelingprep.com/api/... (add api subdomain if your client uses it).
-  # Extend `endpoints` with any other host:443 for HTTPS or host:80 for plain HTTP.
+  # yfinance (curl_cffi): needs POST (consent flow) + any *.finance.yahoo.com (query1/query2).
+  # OpenShell: use protocol rest + tls terminate + access full so L7 allows POST; host *.wildcards per policy schema.
+  # Binaries: globs cover python3.12 etc. Recreate sandbox after edits. Check denies: openshell logs <name> --since 5m
+  yfinance:
+    name: yfinance
+    endpoints:
+    - host: "*.finance.yahoo.com"
+      port: 443
+      protocol: rest
+      tls: terminate
+      enforcement: enforce
+      access: full
+    - host: "*.finance.yahoo.com"
+      port: 80
+    - host: "*.yahoo.com"
+      port: 443
+      protocol: rest
+      tls: terminate
+      enforcement: enforce
+      access: full
+    - host: "*.yimg.com"
+      port: 443
+      protocol: rest
+      tls: terminate
+      enforcement: enforce
+      access: full
+    binaries:
+    - path: /sandbox/.venv/bin/python*
+    - path: /app/.venv/bin/python*
+    - path: /usr/bin/python*
+    - path: /sandbox/.uv/python/**
+    - path: /usr/bin/curl
+  # Financial Modeling Prep API (separate from Yahoo / yfinance).
   market_data:
     name: market-data
     endpoints:
-    - host: query1.finance.yahoo.com
-      port: 443
-    - host: query2.finance.yahoo.com
-      port: 443
     - host: financialmodelingprep.com
       port: 443
-    - host: site.financialmodelingprep.com
+      protocol: rest
+      tls: terminate
+      enforcement: enforce
+      access: full
+    - host: api.financialmodelingprep.com
       port: 443
+      protocol: rest
+      tls: terminate
+      enforcement: enforce
+      access: full
     binaries:
-    - path: /sandbox/.venv/bin/python
-    - path: /sandbox/.venv/bin/python3
-    - path: /app/.venv/bin/python
-    - path: /app/.venv/bin/python3
+    - path: /sandbox/.venv/bin/python*
+    - path: /app/.venv/bin/python*
+    - path: /usr/bin/python*
+    - path: /sandbox/.uv/python/**
     - path: /usr/bin/curl
   opencode:
     name: opencode

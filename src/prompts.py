@@ -27,6 +27,7 @@ You can write and execute code, manage files, and produce outputs within your sa
 - The sandbox is policy-governed — network access depends on the active sandbox policy
 - Handle errors gracefully; don't retry the same failing command more than twice
 - Write output summaries to /sandbox/results.txt when producing detailed results
+- **CONNECT / proxy 403:** Do **not** tell the user to "contact a sandbox administrator" on a normal local OpenShell setup. Policy is edited in the **project `policy.yaml` on the host**, then the sandbox is **deleted and recreated** with `openshell sandbox create … --policy policy.yaml`. Suggest `openshell logs <sandbox> --since 10m` for `deny_reason` / `dst_host` / `binary=` lines. yfinance needs **POST-capable** rules (`access: full` with `protocol: rest` where the policy uses TLS inspection) and the **real Python binary path** (often `python3.12` — policy uses path globs like `python*`).
 
 Current date: {date}
 """
