@@ -86,15 +86,35 @@ network_policies:
           path: /**/git-upload-pack
     binaries:
     - path: /usr/bin/git
-  nvidia_inference:
-    name: nvidia-inference
+  ollama:
+    name: ollama
     endpoints:
-    - host: integrate.api.nvidia.com
-      port: 443
+    - host: 127.0.0.1
+      port: 11434
     binaries:
     - path: /usr/bin/curl
     - path: /bin/bash
     - path: /usr/local/bin/opencode
+  # yfinance → Yahoo Finance HTTPS APIs (add more hosts if requests fail, e.g. guce.yahoo.com).
+  # FMP → https://financialmodelingprep.com/api/... (add api subdomain if your client uses it).
+  # Extend `endpoints` with any other host:443 for HTTPS or host:80 for plain HTTP.
+  market_data:
+    name: market-data
+    endpoints:
+    - host: query1.finance.yahoo.com
+      port: 443
+    - host: query2.finance.yahoo.com
+      port: 443
+    - host: financialmodelingprep.com
+      port: 443
+    - host: site.financialmodelingprep.com
+      port: 443
+    binaries:
+    - path: /sandbox/.venv/bin/python
+    - path: /sandbox/.venv/bin/python3
+    - path: /app/.venv/bin/python
+    - path: /app/.venv/bin/python3
+    - path: /usr/bin/curl
   opencode:
     name: opencode
     endpoints:

@@ -15,24 +15,27 @@ import os
 from datetime import datetime
 
 from deepagents import create_deep_agent
-from langchain.chat_models import init_chat_model
+from langchain_ollama import ChatOllama
 
 from src.backend import create_backend
-from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from src.prompts import AGENT_INSTRUCTIONS
 
 current_date = datetime.now().strftime("%Y-%m-%d")
 
-model = ChatNVIDIA(
-    model="nvidia/nemotron-3-super-120b-a12b",
-    api_key=os.getenv("NVIDIA_API_KEY"),
-    temperature=0.1,
-    max_tokens=16384,
-)
+_ollama_base = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+_ollama_key = os.getenv("OLLAMA_API_KEY")
+_chat_kwargs: dict = {
+    "model": os.getenv("OLLAMA_MODEL", "nemotron-3-super:cloud"),
+    "base_url": _ollama_base,
+    "temperature": 0.1,
+    "num_predict": 16384,
+}
+if _ollama_key:
+    _chat_kwargs["client_kwargs"] = {
+        "headers": {"Authorization": f"Bearer {_ollama_key}"},
+    }
 
-# model = init_chat_model(
-#    os.environ.get("AGENT_MODEL", "anthropic:claude-sonnet-4-6")
-# )
+model = ChatOllama(**_chat_kwargs)
 
 agent = create_deep_agent(
     model=model,
