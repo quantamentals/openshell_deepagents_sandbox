@@ -6,9 +6,10 @@ with local filesystem persistence for memory and skills.
 
 Quick start:
   1. Start or select a gateway: openshell gateway start
-  2. (Optional) Pre-create a sandbox: openshell sandbox create --name my-sandbox --keep
+  2. (Optional) Pre-create a sandbox: openshell sandbox create --name my-sandbox --keep --policy policy.yaml
      Then set: export OPENSHELL_SANDBOX_NAME=my-sandbox
-  3. Run: deepagents run src/agent.py:agent
+  3. Run: uv run langgraph dev --allow-blocking
+     Or invoke in Python: from src.agent import agent
 """
 
 import os

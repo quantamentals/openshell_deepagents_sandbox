@@ -11,7 +11,8 @@ Sandbox selection (controlled via env vars):
 
 Usage:
   Authenticate first: openshell gateway start (or gateway select <existing>)
-  Then run the agent: deepagents run src/agent.py:agent
+  Then run: uv run langgraph dev --allow-blocking
+  Or: from src.agent import agent; agent.invoke(...)
 """
 
 from __future__ import annotations

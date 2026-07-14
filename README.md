@@ -4,6 +4,9 @@ A general-purpose coding agent that runs inside an [NVIDIA OpenShell](https://gi
 
 ## Table of contents
 
+- **[Components & ways to run (start here)](docs/openshell-deep-agents.md)** — A–D: `langgraph dev`, `invoke`, `deepagents`, `dcode`/Nemotron
+- [OpenShell policy tutorial](docs/openshell-policy-tutorial.md) — set, update, verify `policy.yaml`
+- [OpenShell CLI guide](docs/openshell-cli.md)
 - [What is OpenShell?](#what-is-openshell)
 - [What are Deep Agents?](#what-are-deep-agents)
 - [Architecture](#architecture)
@@ -344,15 +347,18 @@ Configuration lives in **`langgraph.json`** at the repo root:
 
 To run a **different entrypoint**, you would change the right-hand side (e.g. another module and graph name) or add another key under `graphs`.
 
-### Deep Agents CLI (no Studio)
+### Deep Agents CLI (not this repo’s OpenShell agent)
 
-The same graph can be run **without** the LangGraph dev server using the Deep Agents CLI (see `src/agent.py` docstring):
+The **global** `deepagents` command is a **separate product** (host-local coding CLI, profiles under `~/.deepagents/`). It does **not** load `src/agent.py` or `OpenShellBackend`. Activating this project’s venv does not change that.
 
-```bash
-uv run deepagents run src/agent.py:agent
+For a **terminal / headless** run of **this** graph, import and invoke it (or wrap in your own CLI):
+
+```python
+from src.agent import agent
+result = agent.invoke({"messages": [{"role": "user", "content": "Say hello."}]})
 ```
 
-Use this for **quick smoke tests**, **scripts**, or **automation** where you do not need Studio. Environment variables still apply (load `.env` yourself or export them in the shell).
+Load `.env` yourself (or export vars) so `OPENSHELL_SANDBOX_NAME` and Ollama settings apply. Full comparison: [docs/openshell-deep-agents.md](docs/openshell-deep-agents.md).
 
 ### Using this agent inside another codebase or LangGraph orchestration
 
@@ -398,10 +404,13 @@ Typical pattern:
 
 | Mode | Command / usage | Best for |
 |------|------------------|----------|
-| **LangGraph CLI + Studio** | `uv run langgraph dev --allow-blocking` | Interactive debugging, LangSmith Studio UI |
-| **Deep Agents CLI** | `uv run deepagents run src/agent.py:agent` | Headless runs, CI, scripts |
-| **Python import** | `from src.agent import agent` then `invoke` / `ainvoke` | Embedding in apps, custom LangGraph orchestration |
-| **Deployed HTTP API** | LangGraph Platform / self-hosted (see LangGraph docs) | Production, multi-user, persistent checkpoints |
+| **A — LangGraph + LangSmith Studio** | `uv run langgraph dev --allow-blocking` | This OpenShell agent + Studio/traces |
+| **B — Programmatic invoke** | `from src.agent import agent` → `invoke` / `ainvoke` | Scripts, custom CLI, embed in apps |
+| **C — Deep Agents CLI** | `deepagents` / `deepagents -n '…'` | Batteries-included host-local coding agent |
+| **D — dcode + Nemotron** | `dcode` (or NemoClaw + `dcode`) | Official Deep Agents Code / Nemotron blueprints |
+| **Deployed HTTP API** | LangGraph Platform / self-hosted | Production multi-user deployments |
+
+Full comparison: [docs/openshell-deep-agents.md](docs/openshell-deep-agents.md).
 
 ---
 
@@ -789,6 +798,8 @@ The agent uses **LangChain Ollama** (`langchain-ollama`) with **`nemotron-3-supe
 
 ## Policy usage flow (gateway, sandbox, and YAML)
 
+**Full step-by-step tutorial:** **[docs/openshell-policy-tutorial.md](docs/openshell-policy-tutorial.md)** (first create, `policy set` vs delete+recreate, verify, allow new HTTPS APIs).
+
 OpenShell ties **policy** to **sandboxes** that run on a **gateway**. The order below is the dependency chain; skipping or reversing it is why commands fail or seem to “do nothing.”
 
 ### Dependency order
@@ -1060,6 +1071,9 @@ If **handshake verification failed** persists after a **fresh sandbox** and **al
 
 ## Resources
 
+- [OpenShell policy tutorial](docs/openshell-policy-tutorial.md) — set / update / verify policy (start here for policy)
+- [OpenShell + Deep Agents — components & ways to run](docs/openshell-deep-agents.md) (`langgraph dev` vs `invoke` vs `deepagents` vs `dcode`/Nemotron)
+- [OpenShell CLI — simple guide](docs/openshell-cli.md) (gateway, sandbox, policy, logs, forward, doctor)
 - [OpenShell](https://github.com/NVIDIA/OpenShell)
 - [OpenShell Community](https://github.com/NVIDIA/OpenShell-Community)
 - [Deep Agents docs](https://docs.langchain.com/oss/python/deepagents/overview)
