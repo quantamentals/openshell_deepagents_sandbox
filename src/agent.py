@@ -20,6 +20,7 @@ from langchain_ollama import ChatOllama
 
 from src.backend import create_backend
 from src.prompts import AGENT_INSTRUCTIONS
+from src.tools import YFINANCE_TOOLS
 
 current_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -42,5 +43,6 @@ agent = create_deep_agent(
     model=model,
     system_prompt=AGENT_INSTRUCTIONS.format(date=current_date),
     memory=["/memory/AGENTS.md"],
+    tools=YFINANCE_TOOLS,
     backend=create_backend,
 )

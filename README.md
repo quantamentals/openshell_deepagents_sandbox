@@ -4,7 +4,7 @@ A general-purpose coding agent that runs inside an [NVIDIA OpenShell](https://gi
 
 ## Table of contents
 
-- **[Components & ways to run (start here)](docs/openshell-deep-agents.md)** — A–D: `langgraph dev`, `invoke`, `deepagents`, `dcode`/Nemotron
+- **[Components & ways to run (start here)](docs/openshell-deep-agents.md)** — A–D: `langgraph dev`, `invoke`, `deepagents`, `dcode`/Nemotron; [where `/sandbox` files live & download](docs/openshell-deep-agents.md#where-agent-scripts-live-and-how-to-download)
 - [OpenShell policy tutorial](docs/openshell-policy-tutorial.md) — set, update, verify `policy.yaml`
 - [OpenShell CLI guide](docs/openshell-cli.md)
 - [What is OpenShell?](#what-is-openshell)

@@ -61,7 +61,7 @@ filesystem_policy:
     - /workspace
 ```
 
-- Agent code should write under **`/sandbox`** (this repo’s convention).
+- Agent code should write under **`/sandbox`** (this repo’s convention). That path is **inside the sandbox only** — pull files out with `openshell sandbox download` (see [openshell-deep-agents.md](openshell-deep-agents.md#where-agent-scripts-live-and-how-to-download)).
 - Paths not listed are denied for that access mode.
 
 ### 2. Process / Landlock

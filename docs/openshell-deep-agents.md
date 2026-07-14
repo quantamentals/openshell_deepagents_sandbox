@@ -266,6 +266,50 @@ Host tools (MCP, LangChain tools registered on the graph) run on the **host**. S
 
 ---
 
+## Where agent scripts live (and how to download)
+
+Agent `write_file` / `execute` under the **default** backend write into the **OpenShell sandbox**, not your laptop repo.
+
+| Path the agent uses | Where it actually is | On your machine? |
+|---------------------|----------------------|------------------|
+| `/sandbox/...` | Writable dir **inside the sandbox pod** | **No** until you download |
+| `/tmp/...` | Sandbox ephemeral temp | **No** |
+| `/memory/...` | Host `./src/...` (CompositeBackend) | **Yes** — git-friendly |
+| `/skills/...` | Host `./skills/...` | **Yes** |
+
+**Convention in this repo:** ask the agent to put scripts under `/sandbox/` (e.g. `/sandbox/outputs/analysis.py`).
+
+### Pull a file to your machine
+
+```bash
+# Replace name/paths as needed
+SANDBOX=michael-shell
+
+# One file → current directory
+uv run openshell sandbox download "$SANDBOX" /sandbox/foo.py .
+
+# One file → a local folder
+mkdir -p outputs
+uv run openshell sandbox download "$SANDBOX" /sandbox/foo.py ./outputs/
+```
+
+### Push a local file into the sandbox
+
+```bash
+uv run openshell sandbox upload "$SANDBOX" ./local_script.py /sandbox/local_script.py
+```
+
+### Inspect without downloading
+
+```bash
+uv run openshell sandbox connect "$SANDBOX"
+# then: ls -la /sandbox
+```
+
+**Deleting or recreating** the sandbox (e.g. to apply new `policy.yaml`) **wipes `/sandbox`**. Download first if you care about the files. Host `/memory/` and `/skills/` paths are unaffected.
+
+---
+
 ## End-to-end checklist
 
 1. Docker Desktop running → `docker info` OK from WSL if you use WSL.

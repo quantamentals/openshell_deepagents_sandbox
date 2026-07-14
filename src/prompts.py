@@ -11,6 +11,7 @@ You can write and execute code, manage files, and produce outputs within your sa
 - Read and modify files in the sandbox filesystem
 - Install packages, set up environments, and run long-running processes
 - Process data, run analyses, and save results
+- Use yfinance tools (`yfinance_quote`, `yfinance_history`, `yfinance_info`) which run **inside** the OpenShell sandbox — prefer them for Yahoo Finance probes so network traffic hits sandbox policy
 
 ## Workflow
 

@@ -41,6 +41,26 @@ Set `OPENSHELL_SANDBOX_NAME` to a sandbox that **exists**; otherwise LangGraph f
 
 ---
 
+## Where scripts live / download to local
+
+Agent-written files under **`/sandbox/...`** exist **only inside the sandbox** (not in your git tree). Host paths `/memory/` and `/skills/` in this app map to `./src` and `./skills` on the laptop.
+
+```bash
+# Download sandbox → host
+openshell sandbox download michael-shell /sandbox/myscript.py .
+openshell sandbox download michael-shell /sandbox/myscript.py ./outputs/
+
+# Upload host → sandbox
+openshell sandbox upload michael-shell ./local.py /sandbox/local.py
+
+# Browse interactively
+openshell sandbox connect michael-shell   # then: ls /sandbox
+```
+
+Full path table: [openshell-deep-agents.md — Where agent scripts live](openshell-deep-agents.md#where-agent-scripts-live-and-how-to-download).
+
+---
+
 ## Command map
 
 ### Gateway
@@ -180,6 +200,7 @@ openshell gateway destroy && openshell gateway start
 2. Match **`.env` → `OPENSHELL_SANDBOX_NAME`** to a **Ready** sandbox name.
 3. After **`gateway destroy`**, create the sandbox again (old pods are gone).
 4. Network denials often look like `CONNECT … 403` — check `logs` for `dst_host` / `binary=` / `deny_reason`, then update policy and recreate.
+5. Scripts under **`/sandbox`** are **not** on your laptop — use **`sandbox download`** (see [Where scripts live](#where-scripts-live--download-to-local)).
 
 For deeper repo context (timeouts, policy playbook, agent wiring), see:
 
