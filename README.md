@@ -5,6 +5,7 @@ A general-purpose coding agent that runs inside an [NVIDIA OpenShell](https://gi
 ## Table of contents
 
 - **[Components & ways to run (start here)](docs/openshell-deep-agents.md)** — A–D: `langgraph dev`, `invoke`, `deepagents`, `dcode`/Nemotron; [where `/sandbox` files live & download](docs/openshell-deep-agents.md#where-agent-scripts-live-and-how-to-download)
+- [Reuse in another project](docs/reusing-in-another-project.md) — which files/imports/deps to copy
 - [OpenShell policy tutorial](docs/openshell-policy-tutorial.md) — set, update, verify `policy.yaml`
 - [OpenShell CLI guide](docs/openshell-cli.md)
 - [What is OpenShell?](#what-is-openshell)
@@ -1071,6 +1072,7 @@ If **handshake verification failed** persists after a **fresh sandbox** and **al
 
 ## Resources
 
+- [Reuse in another project](docs/reusing-in-another-project.md) — copy list, imports, deps, policy per app
 - [OpenShell policy tutorial](docs/openshell-policy-tutorial.md) — set / update / verify policy (start here for policy)
 - [OpenShell + Deep Agents — components & ways to run](docs/openshell-deep-agents.md) (`langgraph dev` vs `invoke` vs `deepagents` vs `dcode`/Nemotron)
 - [OpenShell CLI — simple guide](docs/openshell-cli.md) (gateway, sandbox, policy, logs, forward, doctor)

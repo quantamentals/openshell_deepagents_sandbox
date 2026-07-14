@@ -338,6 +338,9 @@ uv run openshell sandbox connect "$SANDBOX"
 ## Quick decision guide
 
 ```text
+Reuse this stack in a different repo?
+  → docs/reusing-in-another-project.md
+
 This repo’s OpenShell agent + LangSmith Studio?
   → A: uv run langgraph dev --allow-blocking
 
@@ -358,9 +361,9 @@ Need this repo’s policy.yaml + OpenShellBackend?
 
 ## Related docs
 
+- [Reuse in another project](reusing-in-another-project.md) — files, imports, deps to copy
 - [OpenShell policy tutorial](openshell-policy-tutorial.md) — **set and update policy**
 - [OpenShell CLI guide](openshell-cli.md) — full CLI map
-- [Components & ways to run](openshell-deep-agents.md) — stack / run modes
 - [README](../README.md) — full setup, persistence, troubleshooting
 - [Deep Agents overview](https://docs.langchain.com/oss/python/deepagents/overview) — `create_deep_agent` SDK
 - [Deep Agents Code (`dcode`)](https://docs.langchain.com/oss/python/deepagents/cli/overview) — terminal coding agent (path **D**)

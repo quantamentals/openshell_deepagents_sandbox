@@ -204,6 +204,7 @@ openshell gateway destroy && openshell gateway start
 
 For deeper repo context (timeouts, policy playbook, agent wiring), see:
 
+- [Reuse in another project](reusing-in-another-project.md) — files / imports / deps to copy
 - [OpenShell policy tutorial](openshell-policy-tutorial.md) — **set and update policy**
 - [OpenShell + Deep Agents — components & ways to run](openshell-deep-agents.md)
 - Root [README](../README.md)
